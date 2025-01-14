@@ -1,0 +1,4 @@
+env: "local" # dev, prod, local
+binance:
+  depth:
+    symbols: ["btcusdt", "ethusdt"]
