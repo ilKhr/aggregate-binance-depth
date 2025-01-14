@@ -3,8 +3,9 @@ package main
 import (
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
+
+	"github.com/aggregate-binance-depth/internal/app"
+	"github.com/aggregate-binance-depth/internal/config"
 )
 
 const (
@@ -20,20 +21,24 @@ func main() {
 
 	log.Info("logger init successfull")
 
-	application := app.New(log, config.GPRC.Port, config.StoragePath, config.TokenTTL)
+	_, err := app.NewApp(log, config.Binance.Depth.Symbols)
 
-	go application.GRPCSrv.MustRun()
+	if err != nil {
+		log.Error("main error", slog.String("error", err.Error()))
+	}
+
+	// go application.GRPCSrv.MustRun()
 
 	// Graceful shutdown
-	stop := make(chan os.Signal, 1)
+	// stop := make(chan os.Signal, 1)
 
-	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	// signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
 
-	sign := <-stop
+	// sign := <-stop
 
-	log.Info("application stoping", slog.String("signal", sign.String()))
+	// log.Info("application stoping", slog.String("signal", sign.String()))
 
-	application.GRPCSrv.Stop()
+	// application.GRPCSrv.Stop()
 
 	log.Info("application stoped.")
 }

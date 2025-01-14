@@ -15,6 +15,7 @@ type WsService struct {
 
 type WsConnection interface {
 	ReadJSON(v interface{}) error
+	ReadMessage() (messageType int, p []byte, err error)
 	Disconnect(l *slog.Logger) error
 }
 
@@ -79,7 +80,7 @@ func (s *WsService) Disconnect() error {
 	return nil
 }
 
-func (s *WsService) ReadJSON(target []any) error {
+func (s *WsService) ReadJSON(target interface{}) error {
 	const op = "services.websocket.ReadJSON"
 
 	logger := s.log.With(slog.String("op", op))
@@ -104,4 +105,31 @@ func (s *WsService) ReadJSON(target []any) error {
 	}
 
 	return nil
+}
+
+func (s *WsService) ReadMessage() (int, []byte, error) {
+	const op = "services.websocket.ReadMessage"
+
+	logger := s.log.With(slog.String("op", op))
+
+	if s.conn == nil {
+		logger.Error("connection not exists")
+
+		return -1, nil, fmt.Errorf("%s: %s", op, "connection not exists")
+	}
+
+	// blocks flow until the WS is closed or ws get message
+	t, r, err := s.conn.ReadMessage()
+
+	if err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			logger.Debug("Success end ReadMessage", slog.String("error", err.Error()))
+		} else {
+			logger.Error("error with ReadMessage", slog.String("error", err.Error()))
+
+			return -1, nil, fmt.Errorf("%s: %w", op, err)
+		}
+	}
+
+	return t, r, nil
 }

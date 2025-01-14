@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/aggregate-binance-depth/services"
 	"github.com/gorilla/websocket"
 )
 
@@ -13,11 +14,11 @@ const (
 	closeMessageTimeout = 5 * time.Second
 )
 
-type WebsocketClient struct {
-	conn *websocket.Conn
+type WebsocketConnection struct {
+	*websocket.Conn
 }
 
-func (ws WebsocketClient) Connect(url string) (*websocket.Conn, error) {
+func (ws WebsocketConnection) Connect(url string) (services.WsConnection, error) {
 	dialer := websocket.Dialer{
 		HandshakeTimeout:  handshakeTimeout,
 		EnableCompression: false,
@@ -29,10 +30,10 @@ func (ws WebsocketClient) Connect(url string) (*websocket.Conn, error) {
 		return nil, err
 	}
 
-	return conn, nil
+	return &WebsocketConnection{Conn: conn}, nil
 }
 
-func (ws *WebsocketClient) Disconnect(l *slog.Logger) error {
+func (ws *WebsocketConnection) Disconnect(l *slog.Logger) error {
 	const op = "infra.websocket.Disconnect"
 
 	logger := l.With(slog.String("op", op))
@@ -45,13 +46,7 @@ func (ws *WebsocketClient) Disconnect(l *slog.Logger) error {
 		return fmt.Errorf("ws should be defined")
 	}
 
-	if ws.conn == nil {
-		logger.Error("ws conn in undefined")
-
-		return fmt.Errorf("ws conn should be defined")
-	}
-
-	err := ws.conn.WriteControl(
+	err := ws.WriteControl(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Goodbye"),
 		time.Now().Add(closeMessageTimeout),
@@ -61,7 +56,7 @@ func (ws *WebsocketClient) Disconnect(l *slog.Logger) error {
 		logger.Error("error sending close message", slog.String("error", err.Error()))
 	}
 
-	err = ws.conn.Close()
+	err = ws.Close()
 
 	if err != nil {
 		logger.Error("error with close connection", slog.String("error", err.Error()))
