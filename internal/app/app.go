@@ -1,10 +1,8 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/aggregate-binance-depth/infra"
 	"github.com/aggregate-binance-depth/internal/adapters"
@@ -14,7 +12,11 @@ import (
 	"github.com/aggregate-binance-depth/ws"
 )
 
-type App struct{}
+type App struct {
+	DepthGateService *internalServices.DepthGateService
+	WsServer         *ws.WebsocketServer
+	Wss              *services.WsService
+}
 
 func NewApp(l *slog.Logger, symbols []string) (*App, error) {
 	const op = "internal.app.NewApp"
@@ -45,14 +47,9 @@ func NewApp(l *slog.Logger, symbols []string) (*App, error) {
 
 	wsServer.RegisterDepthGateService(depthGateService)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	go depthGateService.Serve(ctx)
-	go wsServer.Serve()
-
-	time.Sleep(30 * time.Second)
-	wss.Disconnect()
-	wsServer.Shutdown(ctx)
-
-	return &App{}, nil
+	return &App{
+		DepthGateService: depthGateService,
+		WsServer:         wsServer,
+		Wss:              wss,
+	}, nil
 }

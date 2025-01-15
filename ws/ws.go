@@ -25,7 +25,7 @@ type WebsocketServer struct {
 	depthGateService depthGateService
 	mu               sync.Mutex
 	server           *http.Server
-
+	closed           bool
 	// TODO: take id from connection
 	maxId int
 }
@@ -99,16 +99,18 @@ func (ws *WebsocketServer) handleClient(conn *websocket.Conn) {
 
 	logger := ws.log.With(slog.String("op", op))
 
-	clientId := ws.maxId
+	var clientId int
 
 	func() {
 		ws.mu.Lock()
 		defer ws.mu.Unlock()
+
+		clientId := ws.maxId
+
 		ws.clients[clientId] = client{id: clientId, conn: conn}
 		ws.maxId++
+		logger.Debug("client connected")
 	}()
-
-	logger.Debug("client connected")
 
 	defer func() {
 		ws.mu.Lock()
@@ -117,7 +119,7 @@ func (ws *WebsocketServer) handleClient(conn *websocket.Conn) {
 		logger.Debug("client disconnected")
 	}()
 
-	for {
+	for !ws.closed {
 		messageType, message, err := conn.ReadMessage()
 		if err != nil {
 			logger.Error("error recive message", slog.String("error", err.Error()))
@@ -146,25 +148,31 @@ func (ws *WebsocketServer) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	return
 }
 
-func (ws *WebsocketServer) Serve() {
+func (ws *WebsocketServer) Serve(port int) {
 	const op = "services.ws.Serve"
 
 	logger := ws.log.With(slog.String("op", op))
 
+	if ws.closed {
+		logger.Error("server already closed")
+
+		return
+	}
+
 	http.HandleFunc("/ws", ws.HandleWebSocket)
 
-	logger.Info("starting WebSocket server on :8080")
+	logger.Info("starting WebSocket server on ", slog.Int("port", port))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", ws.HandleWebSocket)
 
 	ws.server = &http.Server{
-		Addr:    "localhost:8080",
+		Addr:    fmt.Sprintf("localhost:%d", port),
 		Handler: mux,
 	}
 
 	if err := ws.server.ListenAndServe(); err != nil {
-		logger.Error("starting WebSocket server on :8080")
+		logger.Error("ws server stoped successfully")
 	}
 }
 
@@ -182,6 +190,7 @@ func (ws *WebsocketServer) Shutdown(ctx context.Context) {
 		ws.mu.Lock()
 		defer ws.mu.Unlock()
 
+		ws.closed = true
 		for _, client := range ws.clients {
 			client.conn.Close()
 		}

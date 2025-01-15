@@ -1,7 +1,6 @@
 package services
 
 import (
-	"context"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -18,6 +17,7 @@ type DepthGateService struct {
 	mu            sync.Mutex
 	reader        DepthReader
 	writer        DepthWriter
+	closed        bool
 }
 
 type DepthReaderResponse struct {
@@ -81,44 +81,59 @@ func (d *DepthGateService) convertDepthRToW(data DepthReaderResponse) (DepthWrit
 	return DepthWriterRequest{Symbol: data.Data.Symbol, Bid: bidsPrice, Ask: askPrice}, nil
 }
 
-func (d *DepthGateService) Serve(ctx context.Context) {
+func (d *DepthGateService) Serve() {
 	const op = "internal.services.depthGate.Serve"
 
 	logger := d.log.With(slog.String("op", op))
+
+	if d.closed {
+		logger.Error("server already closed")
+
+		return
+	}
 
 	var readerResponse DepthReaderResponse
 	var writerRequest DepthWriterRequest
 	var err error
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			func() {
-				if err = d.reader.ReadJSON(&readerResponse); err != nil {
-					logger.Error("error with ReadJSON", slog.String("error", err.Error()))
-					return
-				}
+	for !(d.closed) {
+		func() {
+			if err = d.reader.ReadJSON(&readerResponse); err != nil {
+				logger.Error("error with ReadJSON", slog.String("error", err.Error()))
+				return
+			}
 
-				writerRequest, err = d.convertDepthRToW(readerResponse)
+			writerRequest, err = d.convertDepthRToW(readerResponse)
 
-				if err != nil {
-					logger.Error("error with convertDepthRToW", slog.String("error", err.Error()))
-					return
-				}
+			if err != nil {
+				logger.Error("error with convertDepthRToW", slog.String("error", err.Error()))
+				return
+			}
 
-				d.mu.Lock()
-				defer d.mu.Unlock()
+			d.mu.Lock()
+			defer d.mu.Unlock()
 
-				d.currentDepths[writerRequest.Symbol] = writerRequest
+			d.currentDepths[writerRequest.Symbol] = writerRequest
 
-				d.writer.WriteJSON(writerRequest)
-			}()
-		}
+			d.writer.WriteJSON(writerRequest)
+		}()
 
 		logger.Debug("writerRequest", slog.Any("writerRequest", writerRequest))
 	}
+
+	logger.Info("serve stoped")
+}
+
+func (d *DepthGateService) Shutdown() {
+	const op = "internal.services.depthGate.Serve"
+
+	logger := d.log.With(slog.String("op", op))
+
+	logger.Info("Shutting down...")
+
+	d.closed = true
+
+	logger.Info("Shutting success")
 }
 
 func (d *DepthGateService) WriteCurrentDeps() error {

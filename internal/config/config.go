@@ -10,10 +10,14 @@ import (
 type Config struct {
 	Env     string  `yaml:"env" env-required:"true"`
 	Binance Binance `yaml:"binance" env-required:"true"`
+	Wss     Wss     `yaml:"ws"`
 }
 
 type Binance struct {
 	Depth BinanceDepth
+}
+type Wss struct {
+	Port int `yaml:"port"`
 }
 
 type BinanceDepth struct {
