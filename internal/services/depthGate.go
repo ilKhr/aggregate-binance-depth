@@ -7,14 +7,6 @@ import (
 	"sync"
 )
 
-// инициируем бизнес логику
-// в ней мы получаем данные из depthServiceWs
-// преобразуем данные в нужный формат
-// пишем данные в getDepthServiceData
-// в случае отмены контекста, закрываем приложение
-// если не успевают вычитывать, мы записываем данные поверх
-//
-
 type symbol = string
 type price = float64
 
@@ -22,10 +14,10 @@ type currentDepths = map[symbol]DepthWriterRequest
 
 type DepthGateService struct {
 	log           *slog.Logger
-	writers       map[string]DepthWriter
 	currentDepths currentDepths
 	mu            sync.Mutex
 	reader        DepthReader
+	writer        DepthWriter
 }
 
 type DepthReaderResponse struct {
@@ -38,9 +30,9 @@ type DepthReaderResponse struct {
 }
 
 type DepthWriterRequest struct {
-	Symbol symbol
-	Bid    price
-	Ask    price
+	Symbol symbol `json:"symbol"`
+	Bid    price  `json:"bid"`
+	Ask    price  `json:"ask"`
 }
 
 type DepthReader interface {
@@ -49,40 +41,20 @@ type DepthReader interface {
 
 type DepthWriter interface {
 	WriteJSON(target DepthWriterRequest) error
-	BulkWriteJSON(target []DepthWriterRequest)
+	BulkWriteJSON(target []DepthWriterRequest) error
 }
 
-func NewDepthGateService(l *slog.Logger, depthReader DepthReader) *DepthGateService {
+func NewDepthGateService(l *slog.Logger, depthReader DepthReader, depthWriter DepthWriter) *DepthGateService {
 	return &DepthGateService{
 		reader:        depthReader,
+		writer:        depthWriter,
 		log:           l,
 		currentDepths: make(currentDepths),
 	}
 }
 
-func (d *DepthGateService) AddWriter(id string, writer DepthWriter) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	d.writers[id] = writer
-
-	values := make([]DepthWriterRequest, 0, len(d.currentDepths))
-
-	for _, value := range d.currentDepths {
-		values = append(values, value)
-	}
-
-	writer.BulkWriteJSON(values)
-}
-
-func (d *DepthGateService) RemoveWriter(id string, writer DepthWriter) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	delete(d.writers, id)
-}
-
 func (d *DepthGateService) convertDepthRToW(data DepthReaderResponse) (DepthWriterRequest, error) {
-	const op = "internal.services.deptGate.ConvertDepthRToW"
+	const op = "internal.services.depthGate.ConvertDepthRToW"
 
 	logger := d.log.With(slog.String("op", op))
 
@@ -109,22 +81,8 @@ func (d *DepthGateService) convertDepthRToW(data DepthReaderResponse) (DepthWrit
 	return DepthWriterRequest{Symbol: data.Data.Symbol, Bid: bidsPrice, Ask: askPrice}, nil
 }
 
-func (d *DepthGateService) broadcast(data DepthWriterRequest) {
-	const op = "internal.services.deptGate.Broadcast"
-
-	logger := d.log.With(slog.String("op", op))
-
-	for _, writers := range d.writers {
-		err := writers.WriteJSON(data)
-
-		if err != nil {
-			logger.Error("error with WriteJSON", slog.String("error", err.Error()))
-		}
-	}
-}
-
 func (d *DepthGateService) Serve(ctx context.Context) {
-	const op = "internal.services.deptGate.Serve"
+	const op = "internal.services.depthGate.Serve"
 
 	logger := d.log.With(slog.String("op", op))
 
@@ -155,10 +113,33 @@ func (d *DepthGateService) Serve(ctx context.Context) {
 
 				d.currentDepths[writerRequest.Symbol] = writerRequest
 
-				d.broadcast(writerRequest)
+				d.writer.WriteJSON(writerRequest)
 			}()
 		}
 
 		logger.Debug("writerRequest", slog.Any("writerRequest", writerRequest))
 	}
+}
+
+func (d *DepthGateService) WriteCurrentDeps() error {
+	const op = "internal.services.depthGate.WriteCurrentDeps"
+
+	logger := d.log.With(slog.String("op", op))
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	values := make([]DepthWriterRequest, 0, len(d.currentDepths))
+
+	for _, value := range d.currentDepths {
+		values = append(values, value)
+	}
+
+	if err := d.writer.BulkWriteJSON(values); err != nil {
+		logger.Error("error with WriteJSON", slog.String("error", err.Error()))
+
+		return err
+	}
+
+	return nil
 }

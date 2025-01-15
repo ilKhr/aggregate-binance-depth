@@ -11,11 +11,8 @@ import (
 	internalServices "github.com/aggregate-binance-depth/internal/services"
 	"github.com/aggregate-binance-depth/services"
 	"github.com/aggregate-binance-depth/services/binance"
+	"github.com/aggregate-binance-depth/ws"
 )
-
-/*
-здесь мне нужно получить источник и цель, куда перенаправлять поток
-*/
 
 type App struct{}
 
@@ -42,13 +39,20 @@ func NewApp(l *slog.Logger, symbols []string) (*App, error) {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
-	depthGateService := internalServices.NewDepthGateService(l, &adapters.DepthServiceWsAdapter{DepthService: depthServiceWs})
+	wsServer := ws.NewWebsocketServer(l)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	depthGateService := internalServices.NewDepthGateService(l, &adapters.DepthServiceWsAdapter{DepthService: depthServiceWs}, wsServer)
+
+	wsServer.RegisterDepthGateService(depthGateService)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	go depthGateService.Serve(ctx)
+	go wsServer.Serve()
 
+	time.Sleep(30 * time.Second)
 	wss.Disconnect()
+	wsServer.Shutdown(ctx)
 
 	return &App{}, nil
 }
