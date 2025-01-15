@@ -119,6 +119,8 @@ func (ws *WebsocketServer) handleClient(conn *websocket.Conn) {
 		logger.Debug("client disconnected")
 	}()
 
+	ws.depthGateService.WriteCurrentDeps()
+
 	for !ws.closed {
 		messageType, message, err := conn.ReadMessage()
 		if err != nil {

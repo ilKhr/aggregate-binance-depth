@@ -1,6 +1,6 @@
 env: "local" # dev, prod, local
 binance:
   depth:
-    symbols: ["btcusdt", "ethusdt"]
+    symbols: ["btcusdt", "ethusdt", "phausdc", "usualusdc", "plnusdc"]
 ws:
   port: 8080
